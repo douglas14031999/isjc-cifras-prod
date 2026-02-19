@@ -16,14 +16,30 @@ import {
     Code,
     Save,
     Wand2,
-    Info
+    Info,
+    Search,
+    Loader2
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
+import { toast } from 'sonner'
 
 const TONALIDADES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 // Regex robusto para detecção de acordes (Mantido da versão anterior)
 const CHORD_REGEX = /\b([A-G][#b]?(?:m|maj|M|dim|aug|sus|add)?[0-9]?[0-9]?(?:\/[A-G][#b]?)?)\b/g
+
+interface SearchResult {
+    title: string;
+    artist: string;
+    url: string;
+}
 
 export default function NewChordPage() {
     const router = useRouter()
@@ -34,6 +50,55 @@ export default function NewChordPage() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor')
+
+    // Cifra Club Search States
+    const [searchQuery, setSearchQuery] = useState('')
+    const [isSearching, setIsSearching] = useState(false)
+    const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+    const [isDialogOpen, setIsDialogOpen] = useState(false)
+
+    const handleCifraClubSearch = async () => {
+        if (!searchQuery.trim()) return
+        setIsSearching(true)
+        console.log('[Frontend] Searching CifraClub for:', searchQuery)
+        try {
+            const res = await fetch(`/api/cifraclub/search?q=${encodeURIComponent(searchQuery)}`)
+            const data = await res.json()
+            console.log('[Frontend] Search results:', data)
+            setSearchResults(data)
+        } catch (err) {
+            console.error('[Frontend] Search error:', err)
+            toast.error('Erro ao buscar no Cifra Club')
+        } finally {
+            setIsSearching(false)
+        }
+    }
+
+    const handleSelectSong = async (url: string) => {
+        setIsSearching(true)
+        console.log('[Frontend] Selecting song:', url)
+        try {
+            const res = await fetch(`/api/cifraclub/song?url=${encodeURIComponent(url)}`)
+            const data = await res.json()
+            console.log('[Frontend] Song data:', data)
+
+            if (data.error) {
+                toast.error('Não foi possível carregar esta cifra')
+                return
+            }
+
+            setTitle(data.title)
+            setArtist(data.artist)
+            setTonality(data.tonality)
+            setLyrics(data.content)
+            setIsDialogOpen(false)
+            toast.success('Música importada com sucesso!')
+        } catch (err) {
+            toast.error('Erro ao importar música')
+        } finally {
+            setIsSearching(false)
+        }
+    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -109,14 +174,56 @@ export default function NewChordPage() {
             <div className="flex items-center justify-between mb-8">
                 <div className="space-y-1">
                     <h1 className="text-2xl font-bold tracking-tight">Adicionar Nova Cifra</h1>
-                    <p className="text-sm text-muted-foreground">Preencha os dados e cole a cifra abaixo.</p>
+                    <p className="text-sm text-muted-foreground">Preencha os dados ou importe do Cifra Club.</p>
                 </div>
                 <div className="flex gap-2">
+                    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Button variant="outline" className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40">
+                                <Wand2 className="mr-2 h-4 w-4" />
+                                Importar do Cifra Club
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[500px]">
+                            <DialogHeader>
+                                <DialogTitle>Buscar no Cifra Club</DialogTitle>
+                            </DialogHeader>
+                            <div className="flex gap-2 py-4">
+                                <Input
+                                    placeholder="Ex: Lindo és Tempo de Semear"
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleCifraClubSearch()}
+                                />
+                                <Button onClick={handleCifraClubSearch} disabled={isSearching}>
+                                    {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                                </Button>
+                            </div>
+                            <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2">
+                                {searchResults.map((result, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => handleSelectSong(result.url)}
+                                        className="w-full text-left p-3 rounded-lg hover:bg-secondary transition-colors border border-transparent hover:border-border group"
+                                    >
+                                        <div className="font-medium group-hover:text-primary transition-colors">{result.title}</div>
+                                        <div className="text-sm text-muted-foreground">{result.artist}</div>
+                                    </button>
+                                ))}
+                                {searchResults.length === 0 && !isSearching && searchQuery && (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        Nenhum resultado encontrado.
+                                    </div>
+                                )}
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+
                     <Button variant="outline" asChild>
                         <Link href="/chords">Cancelar</Link>
                     </Button>
                     <Button onClick={handleSubmit} disabled={loading}>
-                        {loading ? (<Wand2 className="mr-2 h-4 w-4 animate-spin" />) : (<Save className="mr-2 h-4 w-4" />)}
+                        {loading ? (<Loader2 className="mr-2 h-4 w-4 animate-spin" />) : (<Save className="mr-2 h-4 w-4" />)}
                         Salvar Cifra
                     </Button>
                 </div>
